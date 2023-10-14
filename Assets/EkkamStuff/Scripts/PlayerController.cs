@@ -24,6 +24,11 @@ public class PlayerController : MonoBehaviour
     public RectTransform[] redArrows;
     public RectTransform[] greenArrows;
 
+    public RectTransform[] blackPanels;
+
+    public GameObject respawnEffect;
+    public GameObject[] respawnOrbs;
+
     public GameObject effectLocation;
     public GameObject pulseEffect;
     public GameObject dashEffect;
@@ -33,6 +38,7 @@ public class PlayerController : MonoBehaviour
     public float jumpDuration = 1f;
 
     float currentJumpDuration;
+    bool respawning = false;
 
     public float downwardsGravityMultiplier = 1f;
 
@@ -120,6 +126,11 @@ public class PlayerController : MonoBehaviour
         // Limit velocity
         ControlSpeed();
 
+        if (Input.GetKeyDown(KeyCode.R))
+        {
+            StartCoroutine(PlayRespawnAnimation());
+        }
+
     }
 
     private void OnDrawGizmos() {
@@ -198,27 +209,7 @@ public class PlayerController : MonoBehaviour
     void DisablePulse()
     {
         pulseEffect.SetActive(false);
-        // set cinemachine virtual camera tracked object offset to opposite of current offset
-        // playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineFramingTransposer>().m_TrackedObjectOffset = new Vector3(playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineFramingTransposer>().m_TrackedObjectOffset.x, -playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineFramingTransposer>().m_TrackedObjectOffset.y, playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineFramingTransposer>().m_TrackedObjectOffset.z);
     }
-
-    // void PlayArrowAnimation()
-    // {
-    //     if (gravityDirection == Vector3.down)
-    //     {
-    //         // set red arrows y position to 100
-    //         for (int i = 0; i < redArrows.Length; i++)
-    //         {
-    //             redArrows[i].position = new Vector3(redArrows[i].position.x, 500, redArrows[i].position.z);
-    //         }
-            
-    //         // use leantween and move red arrows to the bottom of the screen
-    //         for (int i = 0; i < redArrows.Length; i++)
-    //         {
-    //             LeanTween.moveY(redArrows[i], -200, 0.5f).setEaseOutCubic();
-    //         }
-    //     }
-    // }
 
     IEnumerator PlayArrowAnimation()
     {
@@ -288,6 +279,106 @@ public class PlayerController : MonoBehaviour
             {
                 greenArrows[i].gameObject.SetActive(false);
             }
+        }
+    }
+
+    IEnumerator PlayRespawnAnimation()
+    {
+        sr.enabled = false;
+        pulseEffect.SetActive(true);
+        pulseEffect.GetComponent<Animator>().SetTrigger("pulse");
+        Invoke("DisablePulse", 0.5f);
+
+        respawnEffect.transform.localRotation = Quaternion.Euler(0, 0, 0);
+        respawnEffect.SetActive(true);
+
+        for (int i = 0; i < respawnOrbs.Length; i++)
+        {
+            respawnOrbs[i].transform.localPosition = new Vector3(0, 0, 0);
+            respawnOrbs[i].GetComponent<SpriteRenderer>().color = new Color(1, 0, 0, 1);
+        }
+
+        // use leantween and rotate respawnEffect 360 degrees
+        LeanTween.rotateZ(respawnEffect, 180, 2f).setEaseOutCubic();
+
+        // use leantween and pulse orbs color blue white
+        for (int i = 0; i < respawnOrbs.Length; i++)
+        {
+            LeanTween.color(respawnOrbs[i], new Color(1f, 1f, 1, 1), 1f).setEaseOutCubic();
+        }
+
+        float angle = 0;
+        float angleIncrement = 360 / respawnOrbs.Length;
+        float movingSpeed = 0.5f;
+        float movingDistance = 0.3f;
+
+        // use leantween and move the 8 orbs from the player outwards in a circle
+        for (int i = 0; i < respawnOrbs.Length; i++)
+        {
+            LeanTween.moveLocalX(respawnOrbs[i], Mathf.Cos(angle * Mathf.Deg2Rad) * movingDistance, movingSpeed).setEaseOutCubic();
+            LeanTween.moveLocalY(respawnOrbs[i], Mathf.Sin(angle * Mathf.Deg2Rad) * movingDistance, movingSpeed).setEaseOutCubic();
+            angle += angleIncrement;
+            yield return new WaitForSeconds(0.05f);
+        }
+
+        yield return new WaitForSeconds(0.1f);
+
+        // use leantween and pulse orbs color blue white
+        for (int i = 0; i < respawnOrbs.Length; i++)
+        {
+            LeanTween.color(respawnOrbs[i], new Color(1f, 1f, 1, 0), 1f).setEaseOutCubic();
+        }
+
+        // use leantween and move the 8 orbs from the player back inwards in a circle
+        for (int i = 0; i < respawnOrbs.Length; i++)
+        {
+            LeanTween.moveLocalX(respawnOrbs[i], 0, movingSpeed).setEaseOutCubic();
+            LeanTween.moveLocalY(respawnOrbs[i], 0, movingSpeed).setEaseOutCubic();
+            yield return new WaitForSeconds(0.05f);
+        }
+        
+
+        // move the black panels to the right of the screen
+        for (int i = 0; i < blackPanels.Length; i++)
+        {
+            blackPanels[i].anchoredPosition = new Vector2(1930, blackPanels[i].anchoredPosition.y);
+            blackPanels[i].gameObject.SetActive(true);
+        }
+
+        // use leantween and move the black panels to the left of the screen
+        for (int i = 0; i < blackPanels.Length; i++)
+        {
+            LeanTween.moveX(blackPanels[i], 0, 1f).setEaseOutCubic();
+            yield return new WaitForSeconds(0.05f);
+        }
+
+        yield return new WaitForSeconds(1f);
+
+        respawnEffect.SetActive(false);
+        Respawn();
+
+        // use leantween and move the black panels to the right of the screen
+        for (int i = 0; i < blackPanels.Length; i++)
+        {
+            LeanTween.moveX(blackPanels[i], 1930, 1f).setEaseOutCubic();
+            yield return new WaitForSeconds(0.05f);
+        }
+    }
+
+    void Respawn()
+    {
+        gravityDirection = Vector3.down;
+        sr.flipY = false;
+        transform.position = new Vector3(0, -2.85f, 0);
+        sr.enabled = true;
+    }
+
+    void OnCollisionEnter2D(Collision2D collision)
+    {
+        print("collision"+ collision.gameObject.name);
+        if (collision.gameObject.tag == "Box")
+        {
+            StartCoroutine(PlayRespawnAnimation());
         }
     }
 }
