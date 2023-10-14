@@ -6,6 +6,11 @@ using UnityEngine.EventSystems;
 
 public class PlayerController : MonoBehaviour
 {
+    // main control variables
+    public bool allowJump = true;
+    public bool allowDash = true;
+    public bool allowInvert = true;
+
     public Transform orientation;
     public Transform cameraObj;
 
@@ -33,10 +38,12 @@ public class PlayerController : MonoBehaviour
     public GameObject effectLocation;
     public GameObject pulseEffect;
     public GameObject dashEffect;
+    public ParticleSystem groundParticles;
     public float arrowTransparency = 0.5f;
 
     public float jumpHeightApex = 2f;
     public float jumpDuration = 1f;
+    public float dashDuration = 0.5f;
 
     float currentJumpDuration;
     bool respawning = false;
@@ -45,8 +52,8 @@ public class PlayerController : MonoBehaviour
 
     public float speed = 1.0f;
     public float maxSpeed = 5.0f;
-    public float dashSpeed = 1.0f;
-    public float dashMaxSpeed = 5.0f;
+    // public float dashSpeed = 1.0f;
+    // public float dashMaxSpeed = 5.0f;
     public float groundDrag;
 
     public bool isJumping = false;
@@ -100,8 +107,20 @@ public class PlayerController : MonoBehaviour
             {
                 anim.SetBool("jumpingDown", false);
                 anim.SetBool("jumpingUp", false);
-                hasLanded = true;
+                if (hasLanded != true)
+                {
+                    groundParticles.Play();
+                    hasLanded = true;
+                }
             }
+
+            // if (hasLanded && !isJumping)
+            // {
+            //     print("Landed!");
+            //     groundParticles.Play();
+            //     hasLanded = false;
+            //     StartCoroutine(ShakeCamera(playerVCamAmplitude, 0.1f));
+            // }
         }
         else
         {
@@ -114,13 +133,15 @@ public class PlayerController : MonoBehaviour
             {
                 print("Invert!");
                 doubleJumped = true;
-                InvertGravity();
+                // InvertGravity();
+                StartDash();
             }
             else if (!isGrounded && allowDoubleJump && !doubleJumped && isJumping)
             {
                 print("Dash!");
                 doubleJumped = true;
-                StartDash();
+                // StartDash();
+                InvertGravity();
             }
             else if (isGrounded)
             {
@@ -193,21 +214,19 @@ public class PlayerController : MonoBehaviour
             rb.velocity = new Vector2(rb.velocity.x, 0);
             rb.AddForce(transform.right * speed * 2, ForceMode2D.Impulse);
             
-            if (Time.time - dashStartTime >= 0.5f)
+            if (Time.time - dashStartTime >= dashDuration)
             {
                 isDashing = false;
                 dashEffect.SetActive(false);
+                StopShakingCamera();
             }
 
             if (dashReleased)
             {
-                // if (rb.velocity.x > 0)
-                // {
-                //     rb.velocity = new Vector2(rb.velocity.x * 0.5f, rb.velocity.y);
-                // }
                 dashReleased = false;
                 isDashing = false;
                 dashEffect.SetActive(false);
+                StopShakingCamera();
             }
         }
         else if (isJumping)
@@ -255,6 +274,7 @@ public class PlayerController : MonoBehaviour
         isDashing = true;
         dashStartTime = Time.time;
         dashEffect.SetActive(true);
+        StartShakingCamera();
     }
 
     void InvertGravity()
@@ -435,6 +455,16 @@ public class PlayerController : MonoBehaviour
     {
         playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain = amplitude;
         yield return new WaitForSeconds(duration);
+        playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain = 0;
+    }
+
+    void StartShakingCamera()
+    {
+        playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain = 1;
+    }
+
+    void StopShakingCamera()
+    {
         playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain = 0;
     }
 
