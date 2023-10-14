@@ -20,6 +20,7 @@ public class PlayerController : MonoBehaviour
     public Animator anim;
     public SpriteRenderer sr;
     public GameObject playerVCam;
+    public float playerVCamAmplitude = 1f;
 
     public RectTransform[] redArrows;
     public RectTransform[] greenArrows;
@@ -44,6 +45,8 @@ public class PlayerController : MonoBehaviour
 
     public float speed = 1.0f;
     public float maxSpeed = 5.0f;
+    public float dashSpeed = 1.0f;
+    public float dashMaxSpeed = 5.0f;
     public float groundDrag;
 
     public bool isJumping = false;
@@ -53,10 +56,14 @@ public class PlayerController : MonoBehaviour
     public Vector3 gravityDirection = Vector3.down;
 
     bool doubleJumped = false;
+    bool isDashing = false;
+    public bool jumpReleased = false;
+    public bool dashReleased = false;
 
     float gravity;
     float initialJumpVelocity;
     float jumpStartTime;
+    float dashStartTime;
 
     public float groundDistance = 1f;
 
@@ -65,6 +72,8 @@ public class PlayerController : MonoBehaviour
         rb = GetComponent<Rigidbody2D>();
         anim = GetComponent<Animator>();
         sr = GetComponent<SpriteRenderer>();
+
+        playerVCamAmplitude = playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain;
 
         gravity = -2 * jumpHeightApex / (jumpDuration * jumpDuration);
         initialJumpVelocity = Mathf.Abs(gravity) * jumpDuration;
@@ -75,7 +84,6 @@ public class PlayerController : MonoBehaviour
 
     void Update()
     {
-
         horizontalInput = Input.GetAxis("Horizontal");
         verticalInput = Input.GetAxis("Vertical");
 
@@ -92,6 +100,7 @@ public class PlayerController : MonoBehaviour
             {
                 anim.SetBool("jumpingDown", false);
                 anim.SetBool("jumpingUp", false);
+                hasLanded = true;
             }
         }
         else
@@ -101,17 +110,33 @@ public class PlayerController : MonoBehaviour
 
         if (Input.GetKeyDown(KeyCode.Space))
         {
-            if (!isGrounded && allowDoubleJump && !doubleJumped) //  && allowDoubleJump && !doubleJumped
+            if (!isGrounded && allowDoubleJump && !doubleJumped && !isJumping)
             {
+                print("Invert!");
                 doubleJumped = true;
-                // StartJump(jumpHeightApex, jumpDuration);
                 InvertGravity();
+            }
+            else if (!isGrounded && allowDoubleJump && !doubleJumped && isJumping)
+            {
+                print("Dash!");
+                doubleJumped = true;
+                StartDash();
             }
             else if (isGrounded)
             {
                 doubleJumped = false;
                 StartJump(jumpHeightApex, jumpDuration);
             }
+        }
+
+        if (Input.GetKeyUp(KeyCode.Space) && isJumping)
+        {
+            jumpReleased = true;
+        }
+
+        if (Input.GetKeyUp(KeyCode.Space) && isDashing)
+        {
+            dashReleased = true;
         }
 
         if (isGrounded)
@@ -158,10 +183,34 @@ public class PlayerController : MonoBehaviour
     {
 
         // Move player
-        MovePlayer();
+        if (!respawning)
+        {
+            MovePlayer();
+        }
 
-        // Jumping
-        if (isJumping)
+        if (isDashing)
+        {
+            rb.velocity = new Vector2(rb.velocity.x, 0);
+            rb.AddForce(transform.right * speed * 2, ForceMode2D.Impulse);
+            
+            if (Time.time - dashStartTime >= 0.5f)
+            {
+                isDashing = false;
+                dashEffect.SetActive(false);
+            }
+
+            if (dashReleased)
+            {
+                // if (rb.velocity.x > 0)
+                // {
+                //     rb.velocity = new Vector2(rb.velocity.x * 0.5f, rb.velocity.y);
+                // }
+                dashReleased = false;
+                isDashing = false;
+                dashEffect.SetActive(false);
+            }
+        }
+        else if (isJumping)
         {
             rb.AddForce(-gravityDirection * gravity, ForceMode2D.Force);
 
@@ -170,12 +219,21 @@ public class PlayerController : MonoBehaviour
                 isJumping = false;
                 hasLanded = false;
             }
+
+            if (jumpReleased)
+            {
+                if (rb.velocity.y > 0.1f || rb.velocity.y < 0.1f)
+                {
+                    rb.velocity = new Vector2(rb.velocity.x, rb.velocity.y * 0.5f);
+                }
+                jumpReleased = false;
+            }
         }
         else
         {
             anim.SetBool("jumpingDown", true);
             anim.SetBool("jumpingUp", false);
-            rb.AddForce(gravityDirection * -gravity * downwardsGravityMultiplier, ForceMode2D.Force);
+            if (!isDashing) rb.AddForce(gravityDirection * -gravity * downwardsGravityMultiplier, ForceMode2D.Force);
         }
     }
 
@@ -192,9 +250,17 @@ public class PlayerController : MonoBehaviour
         rb.velocity = -gravityDirection * initialJumpVelocity;
     }
 
+    void StartDash()
+    {
+        isDashing = true;
+        dashStartTime = Time.time;
+        dashEffect.SetActive(true);
+    }
+
     void InvertGravity()
     {
         gravityDirection = -gravityDirection;
+        StopCoroutine(PlayArrowAnimation());
         StartCoroutine(PlayArrowAnimation());
         sr.flipY = !sr.flipY;
 
@@ -284,10 +350,12 @@ public class PlayerController : MonoBehaviour
 
     IEnumerator PlayRespawnAnimation()
     {
+        if (respawning) yield break;
+        respawning = true;
         sr.enabled = false;
-        pulseEffect.SetActive(true);
-        pulseEffect.GetComponent<Animator>().SetTrigger("pulse");
-        Invoke("DisablePulse", 0.5f);
+        // pulseEffect.SetActive(true);
+        // pulseEffect.GetComponent<Animator>().SetTrigger("pulse");
+        // Invoke("DisablePulse", 0.5f);
 
         respawnEffect.transform.localRotation = Quaternion.Euler(0, 0, 0);
         respawnEffect.SetActive(true);
@@ -301,7 +369,6 @@ public class PlayerController : MonoBehaviour
         // use leantween and rotate respawnEffect 360 degrees
         LeanTween.rotateZ(respawnEffect, 180, 2f).setEaseOutCubic();
 
-        // use leantween and pulse orbs color blue white
         for (int i = 0; i < respawnOrbs.Length; i++)
         {
             LeanTween.color(respawnOrbs[i], new Color(1f, 1f, 1, 1), 1f).setEaseOutCubic();
@@ -323,7 +390,6 @@ public class PlayerController : MonoBehaviour
 
         yield return new WaitForSeconds(0.1f);
 
-        // use leantween and pulse orbs color blue white
         for (int i = 0; i < respawnOrbs.Length; i++)
         {
             LeanTween.color(respawnOrbs[i], new Color(1f, 1f, 1, 0), 1f).setEaseOutCubic();
@@ -365,12 +431,20 @@ public class PlayerController : MonoBehaviour
         }
     }
 
+    IEnumerator ShakeCamera(float amplitude, float duration)
+    {
+        playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain = amplitude;
+        yield return new WaitForSeconds(duration);
+        playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain = 0;
+    }
+
     void Respawn()
     {
         gravityDirection = Vector3.down;
         sr.flipY = false;
         transform.position = new Vector3(0, -2.85f, 0);
         sr.enabled = true;
+        respawning = false;
     }
 
     void OnCollisionEnter2D(Collision2D collision)
