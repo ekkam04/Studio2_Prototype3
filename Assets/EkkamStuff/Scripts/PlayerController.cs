@@ -72,6 +72,7 @@ public class PlayerController : MonoBehaviour
 
     bool doubleJumped = false;
     bool isDashing = false;
+    bool isCheckingTrigger = true;
     public bool jumpReleased = false;
     public bool dashReleased = false;
 
@@ -109,6 +110,9 @@ public class PlayerController : MonoBehaviour
         // Cursor.lockState = CursorLockMode.Locked;
         // Cursor.visible = false;
 
+        // set player v cam tracked object offset y to 5 (workaround to pull the camera up a bit)
+        playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineFramingTransposer>().m_TrackedObjectOffset.y = 5;
+
         Invoke("HideTransitionVCam", 1f);
     }
 
@@ -116,8 +120,7 @@ public class PlayerController : MonoBehaviour
     {
         transitionVCam.SetActive(false);
         autoMove = true;
-        StartTutorialCoroutineInstance = PlayTutorialUI();
-        StartCoroutine(StartTutorialCoroutineInstance);
+        playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineFramingTransposer>().m_TrackedObjectOffset.y = 0;
     }
 
     void Update()
@@ -490,7 +493,7 @@ public class PlayerController : MonoBehaviour
         respawnEffect.SetActive(false);
         Respawn();
 
-        // set player v cam tracked object offset y to 5
+        // set player v cam tracked object offset y to 5 (workaround to pull the camera up a bit)
         playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineFramingTransposer>().m_TrackedObjectOffset.y = 5;
 
         // use leantween and move the black panels to the right of the screen
@@ -532,26 +535,26 @@ public class PlayerController : MonoBehaviour
         tutorialUI.SetActive(false);
     }
 
-    IEnumerator PlayTutorialUI()
-    {
-        yield return new WaitForSeconds(4f);
+    // IEnumerator PlayTutorialUI()
+    // {
+    //     yield return new WaitForSeconds(4f);
 
-        TutorialCoroutineInstance1 = PromptTutorial("Tap to Jump!", 5f, 1);
-        StartCoroutine(TutorialCoroutineInstance1);
+    //     TutorialCoroutineInstance1 = PromptTutorial("Tap to Jump!", 5f, 1);
+    //     StartCoroutine(TutorialCoroutineInstance1);
 
-        yield return new WaitForSeconds(8f);
+    //     yield return new WaitForSeconds(8f);
 
-        TutorialCoroutineInstance2 = PromptTutorial("Hold to Jump longer!", 5f, 1);
-        StartCoroutine(TutorialCoroutineInstance2);
+    //     TutorialCoroutineInstance2 = PromptTutorial("Hold to Jump longer!", 5f, 1);
+    //     StartCoroutine(TutorialCoroutineInstance2);
 
-        yield return new WaitForSeconds(9f);
+    //     yield return new WaitForSeconds(9f);
 
-        TutorialCoroutineInstance3 = PromptTutorial("Double-Tap quickly to flip gravity!", 5f, 1);
-        StartCoroutine(TutorialCoroutineInstance3);
-        allowInvert = true;
+    //     TutorialCoroutineInstance3 = PromptTutorial("Double-Tap quickly to flip gravity!", 5f, 1);
+    //     StartCoroutine(TutorialCoroutineInstance3);
+    //     allowInvert = true;
 
-        yield return new WaitForSeconds(10f);
-    }
+    //     yield return new WaitForSeconds(10f);
+    // }
 
     void StartShakingCamera()
     {
@@ -570,16 +573,61 @@ public class PlayerController : MonoBehaviour
         transform.position = checkpointPosition;
         sr.enabled = true;
         respawning = false;
-        StartTutorialCoroutineInstance = PlayTutorialUI();
-        StartCoroutine(StartTutorialCoroutineInstance);
+        // StartTutorialCoroutineInstance = PlayTutorialUI();
+        // StartCoroutine(StartTutorialCoroutineInstance);
     }
 
     void OnCollisionEnter2D(Collision2D collision)
     {
-        print("collision"+ collision.gameObject.name);
+        print("Collision: " + collision.gameObject.name);
+
         if (collision.gameObject.tag == "Box")
         {
             StartCoroutine(PlayRespawnAnimation());
         }
+    }
+
+    void OnTriggerEnter2D(Collider2D collision) {
+
+        if (!isCheckingTrigger) return;
+        isCheckingTrigger = false;
+        Invoke("EnableTriggerCheck", 1f);
+
+        print("Trigger: " + collision.gameObject.name);
+
+        if (collision.gameObject.tag == "Respawn")
+        {
+            print("Checkpoint!");
+            checkpointPosition = transform.position;
+        }
+
+        switch (collision.gameObject.name)
+        {
+            case "TutorialTrigger_1":
+                TutorialCoroutineInstance1 = PromptTutorial("Tap to Jump!", 5f, 1);
+                StartCoroutine(TutorialCoroutineInstance1);
+                break;
+            case "TutorialTrigger_2":
+                TutorialCoroutineInstance2 = PromptTutorial("Hold to Jump longer!", 5f, 1);
+                StartCoroutine(TutorialCoroutineInstance2);
+                break;
+            case "TutorialTrigger_3":
+                TutorialCoroutineInstance3 = PromptTutorial("Double-Tap quickly to flip gravity!", 5f, 1);
+                StartCoroutine(TutorialCoroutineInstance3);
+                allowInvert = true;
+                break;
+            case "TutorialTrigger_4":
+                TutorialCoroutineInstance4 = PromptTutorial("Hold to Dash!", 5f, 1);
+                StartCoroutine(TutorialCoroutineInstance4);
+                allowDash = true;
+                break;
+            default:
+                break;
+        }
+    }
+
+    void EnableTriggerCheck()
+    {
+        isCheckingTrigger = true;
     }
 }
