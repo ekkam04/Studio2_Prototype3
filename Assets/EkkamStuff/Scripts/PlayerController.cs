@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using UnityEngine;
 using TMPro;
 using UnityEngine.EventSystems;
+using TMPro;
+using UnityEngine.UI;
 
 public class PlayerController : MonoBehaviour
 {
@@ -10,6 +12,7 @@ public class PlayerController : MonoBehaviour
     public bool allowJump = true;
     public bool allowDash = true;
     public bool allowInvert = true;
+    public bool autoMove = true;
 
     public Transform orientation;
     public Transform cameraObj;
@@ -25,12 +28,17 @@ public class PlayerController : MonoBehaviour
     public Animator anim;
     public SpriteRenderer sr;
     public GameObject playerVCam;
+    public GameObject transitionVCam;
     public float playerVCamAmplitude = 1f;
 
     public RectTransform[] redArrows;
     public RectTransform[] greenArrows;
 
     public RectTransform[] blackPanels;
+
+    public TMP_Text tutorialText;
+    public Button spaceButton;
+    public GameObject tutorialUI;
 
     public GameObject respawnEffect;
     public GameObject[] respawnOrbs;
@@ -72,6 +80,14 @@ public class PlayerController : MonoBehaviour
     float jumpStartTime;
     float dashStartTime;
 
+    IEnumerator StartTutorialCoroutineInstance = null;
+    IEnumerator TutorialCoroutineInstance1 = null;
+    IEnumerator TutorialCoroutineInstance2 = null;
+    IEnumerator TutorialCoroutineInstance3 = null;
+    IEnumerator TutorialCoroutineInstance4 = null;
+
+    Vector3 checkpointPosition;
+
     public float groundDistance = 1f;
 
     private void Start()
@@ -80,13 +96,28 @@ public class PlayerController : MonoBehaviour
         anim = GetComponent<Animator>();
         sr = GetComponent<SpriteRenderer>();
 
+        checkpointPosition = transform.position;
+
         playerVCamAmplitude = playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain;
 
         gravity = -2 * jumpHeightApex / (jumpDuration * jumpDuration);
         initialJumpVelocity = Mathf.Abs(gravity) * jumpDuration;
 
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
+        // Cursor.lockState = CursorLockMode.None;
+        // Cursor.visible = true;
+
+        // Cursor.lockState = CursorLockMode.Locked;
+        // Cursor.visible = false;
+
+        Invoke("HideTransitionVCam", 1f);
+    }
+
+    void HideTransitionVCam()
+    {
+        transitionVCam.SetActive(false);
+        autoMove = true;
+        StartTutorialCoroutineInstance = PlayTutorialUI();
+        StartCoroutine(StartTutorialCoroutineInstance);
     }
 
     void Update()
@@ -113,14 +144,6 @@ public class PlayerController : MonoBehaviour
                     hasLanded = true;
                 }
             }
-
-            // if (hasLanded && !isJumping)
-            // {
-            //     print("Landed!");
-            //     groundParticles.Play();
-            //     hasLanded = false;
-            //     StartCoroutine(ShakeCamera(playerVCamAmplitude, 0.1f));
-            // }
         }
         else
         {
@@ -131,22 +154,20 @@ public class PlayerController : MonoBehaviour
         {
             if (!isGrounded && allowDoubleJump && !doubleJumped && !isJumping)
             {
-                print("Invert!");
+                print("Dash!");
                 doubleJumped = true;
-                // InvertGravity();
-                StartDash();
+                if (allowDash) StartDash();
             }
             else if (!isGrounded && allowDoubleJump && !doubleJumped && isJumping)
             {
-                print("Dash!");
+                print("Invert!");
                 doubleJumped = true;
-                // StartDash();
-                InvertGravity();
+                if (allowInvert) InvertGravity();
             }
             else if (isGrounded)
             {
                 doubleJumped = false;
-                StartJump(jumpHeightApex, jumpDuration);
+                if (allowJump) StartJump(jumpHeightApex, jumpDuration);
             }
         }
 
@@ -177,6 +198,19 @@ public class PlayerController : MonoBehaviour
             StartCoroutine(PlayRespawnAnimation());
         }
 
+        if (transform.position.y < -6f || transform.position.y > 7.5f)
+        {
+            StartCoroutine(PlayRespawnAnimation());
+        }
+
+        if (Input.GetKey(KeyCode.Space))
+        {
+            spaceButton.interactable = false;
+        }
+        else
+        {
+            spaceButton.interactable = true;
+        }
     }
 
     private void OnDrawGizmos() {
@@ -202,12 +236,17 @@ public class PlayerController : MonoBehaviour
 
     void FixedUpdate()
     {
+        if (respawning) 
+        {
+            rb.velocity = new Vector2(0, 0);
+            ParallaxController.speedMultiplier = 0;
+            return;
+        }
+
+        ParallaxController.speedMultiplier = 1;
 
         // Move player
-        if (!respawning)
-        {
-            MovePlayer();
-        }
+        if (autoMove) MovePlayer();
 
         if (isDashing)
         {
@@ -373,6 +412,15 @@ public class PlayerController : MonoBehaviour
         if (respawning) yield break;
         respawning = true;
         sr.enabled = false;
+        rb.velocity = new Vector2(0, 0);
+        
+        if (StartTutorialCoroutineInstance != null) StopCoroutine(StartTutorialCoroutineInstance);
+        if (TutorialCoroutineInstance1 != null) StopCoroutine(TutorialCoroutineInstance1);
+        if (TutorialCoroutineInstance2 != null) StopCoroutine(TutorialCoroutineInstance2);
+        if (TutorialCoroutineInstance3 != null) StopCoroutine(TutorialCoroutineInstance3);
+        if (TutorialCoroutineInstance4 != null) StopCoroutine(TutorialCoroutineInstance4);
+        tutorialUI.SetActive(false);
+
         // pulseEffect.SetActive(true);
         // pulseEffect.GetComponent<Animator>().SetTrigger("pulse");
         // Invoke("DisablePulse", 0.5f);
@@ -422,7 +470,6 @@ public class PlayerController : MonoBehaviour
             LeanTween.moveLocalY(respawnOrbs[i], 0, movingSpeed).setEaseOutCubic();
             yield return new WaitForSeconds(0.05f);
         }
-        
 
         // move the black panels to the right of the screen
         for (int i = 0; i < blackPanels.Length; i++)
@@ -443,19 +490,67 @@ public class PlayerController : MonoBehaviour
         respawnEffect.SetActive(false);
         Respawn();
 
+        // set player v cam tracked object offset y to 5
+        playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineFramingTransposer>().m_TrackedObjectOffset.y = 5;
+
         // use leantween and move the black panels to the right of the screen
         for (int i = 0; i < blackPanels.Length; i++)
         {
             LeanTween.moveX(blackPanels[i], 1930, 1f).setEaseOutCubic();
             yield return new WaitForSeconds(0.05f);
         }
+
+        playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineFramingTransposer>().m_TrackedObjectOffset.y = 0;
     }
 
-    IEnumerator ShakeCamera(float amplitude, float duration)
+    IEnumerator PromptTutorial(string textToShow, float durationToShow, int tutorialNumber)
     {
-        playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain = amplitude;
-        yield return new WaitForSeconds(duration);
-        playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain = 0;
+        // set tutorial text
+        tutorialText.text = textToShow;
+
+        // move tutorial UI to y = 500
+        tutorialUI.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 450);
+        tutorialUI.SetActive(true);
+
+        // use leantween and move tutorial UI down
+        LeanTween.moveLocalY(tutorialUI, 0, 1f).setEaseOutCubic();
+
+        yield return new WaitForSeconds(1.5f);
+
+        // spaceButton.interactable = false;
+        // yield return new WaitForSeconds(0.1f);
+        // spaceButton.interactable = true;
+
+        yield return new WaitForSeconds(durationToShow);
+
+        // use leantween and move tutorial UI up
+        LeanTween.moveLocalY(tutorialUI, 450, 1f).setEaseOutCubic();
+
+        yield return new WaitForSeconds(1f);
+
+        // disable tutorial UI
+        tutorialUI.SetActive(false);
+    }
+
+    IEnumerator PlayTutorialUI()
+    {
+        yield return new WaitForSeconds(4f);
+
+        TutorialCoroutineInstance1 = PromptTutorial("Tap to Jump!", 5f, 1);
+        StartCoroutine(TutorialCoroutineInstance1);
+
+        yield return new WaitForSeconds(8f);
+
+        TutorialCoroutineInstance2 = PromptTutorial("Hold to Jump longer!", 5f, 1);
+        StartCoroutine(TutorialCoroutineInstance2);
+
+        yield return new WaitForSeconds(9f);
+
+        TutorialCoroutineInstance3 = PromptTutorial("Double-Tap quickly to flip gravity!", 5f, 1);
+        StartCoroutine(TutorialCoroutineInstance3);
+        allowInvert = true;
+
+        yield return new WaitForSeconds(10f);
     }
 
     void StartShakingCamera()
@@ -472,9 +567,11 @@ public class PlayerController : MonoBehaviour
     {
         gravityDirection = Vector3.down;
         sr.flipY = false;
-        transform.position = new Vector3(0, -2.85f, 0);
+        transform.position = checkpointPosition;
         sr.enabled = true;
         respawning = false;
+        StartTutorialCoroutineInstance = PlayTutorialUI();
+        StartCoroutine(StartTutorialCoroutineInstance);
     }
 
     void OnCollisionEnter2D(Collision2D collision)
