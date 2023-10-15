@@ -5,6 +5,8 @@ using TMPro;
 using UnityEngine.EventSystems;
 using TMPro;
 using UnityEngine.UI;
+using UnityEngine.Tilemaps;
+using UnityEngine.SceneManagement;
 
 public class PlayerController : MonoBehaviour
 {
@@ -51,6 +53,7 @@ public class PlayerController : MonoBehaviour
 
     public float jumpHeightApex = 2f;
     public float jumpDuration = 1f;
+    public float jumpCoyoteTime = 0.1f;
     public float dashDuration = 0.5f;
 
     float currentJumpDuration;
@@ -60,6 +63,7 @@ public class PlayerController : MonoBehaviour
 
     public float speed = 1.0f;
     public float maxSpeed = 5.0f;
+    public float footstepSoundDelay = 0.4f;
     // public float dashSpeed = 1.0f;
     // public float dashMaxSpeed = 5.0f;
     public float groundDrag;
@@ -73,6 +77,7 @@ public class PlayerController : MonoBehaviour
     bool doubleJumped = false;
     bool isDashing = false;
     bool isCheckingTrigger = true;
+    bool freezeTime = false;
     public bool jumpReleased = false;
     public bool dashReleased = false;
 
@@ -80,6 +85,13 @@ public class PlayerController : MonoBehaviour
     float initialJumpVelocity;
     float jumpStartTime;
     float dashStartTime;
+    float jumpDifference = 0f;
+    float footstepTimer = 0f;
+    
+    public float timeSinceLastGrounded;
+    public float timeSinceLastJumpInput;
+
+    Tilemap tilemap;
 
     IEnumerator StartTutorialCoroutineInstance = null;
     IEnumerator TutorialCoroutineInstance1 = null;
@@ -88,15 +100,30 @@ public class PlayerController : MonoBehaviour
     IEnumerator TutorialCoroutineInstance4 = null;
 
     Vector3 checkpointPosition;
-
     public float groundDistance = 1f;
+
+    [SerializeField] AudioSource backgroundMusic;
+    [SerializeField] AudioSource endingMusic;
+
+    [SerializeField] AudioSource playerAudio;
+    [SerializeField] AudioSource footstepAudio;
+    [SerializeField] AudioClip[] landingSounds;
+    [SerializeField] AudioClip[] footstepSounds;
+    [SerializeField] AudioClip[] bridgeBreakingSounds;
+    [SerializeField] AudioClip[] invertSounds;
+    [SerializeField] AudioClip dashSound;
+    [SerializeField] AudioClip eliminateSound;
+    [SerializeField] AudioClip respawnSound;
 
     private void Start()
     {
         rb = GetComponent<Rigidbody2D>();
         anim = GetComponent<Animator>();
         sr = GetComponent<SpriteRenderer>();
+        sr.flipX = false;
+        sr.flipY = false;
 
+        tilemap = GameObject.Find("Ground").GetComponent<Tilemap>();
         checkpointPosition = transform.position;
 
         playerVCamAmplitude = playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain;
@@ -123,10 +150,29 @@ public class PlayerController : MonoBehaviour
         playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineFramingTransposer>().m_TrackedObjectOffset.y = 0;
     }
 
+    void ShowTransitionVCam()
+    {
+        transitionVCam.SetActive(true);
+        sr.flipX = !sr.flipX;
+        Invoke("GoToMainMenu", 4f);
+    }
+
+    void GoToMainMenu()
+    {
+        SceneManager.LoadScene("MainMenu");
+    }
+
     void Update()
     {
         horizontalInput = Input.GetAxis("Horizontal");
         verticalInput = Input.GetAxis("Vertical");
+
+        footstepTimer += Time.deltaTime;
+        if (footstepTimer > footstepSoundDelay && isGrounded && rb.velocity.x > 0.1f)
+        {
+            footstepTimer = 0f;
+            footstepAudio.PlayOneShot(footstepSounds[Random.Range(0, footstepSounds.Length)]);
+        }
 
         // Ground check
         if (
@@ -137,6 +183,7 @@ public class PlayerController : MonoBehaviour
             )
         {
             isGrounded = true;
+            timeSinceLastGrounded = 0f;
             if (!isJumping)
             {
                 anim.SetBool("jumpingDown", false);
@@ -144,18 +191,24 @@ public class PlayerController : MonoBehaviour
                 if (hasLanded != true)
                 {
                     groundParticles.Play();
+                    playerAudio.PlayOneShot(landingSounds[Random.Range(0, landingSounds.Length)]);
                     hasLanded = true;
+                    jumpDifference = 0f;
                 }
             }
         }
         else
         {
             isGrounded = false;
+            timeSinceLastGrounded += Time.deltaTime;
         }
+
+        timeSinceLastJumpInput += Time.deltaTime;
 
         if (Input.GetKeyDown(KeyCode.Space))
         {
-            if (!isGrounded && allowDoubleJump && !doubleJumped && !isJumping)
+
+            if (!isGrounded && allowDoubleJump && !doubleJumped && !isJumping && timeSinceLastGrounded > jumpCoyoteTime) //  && timeSinceLastGrounded > jumpCoyoteTime
             {
                 print("Dash!");
                 doubleJumped = true;
@@ -172,6 +225,14 @@ public class PlayerController : MonoBehaviour
                 doubleJumped = false;
                 if (allowJump) StartJump(jumpHeightApex, jumpDuration);
             }
+            else if (!isJumping && timeSinceLastGrounded < jumpCoyoteTime)
+            {
+                print("Jump Coyote!");
+                doubleJumped = false;
+                if (allowJump) StartJump(jumpHeightApex, jumpDuration);
+            }
+
+            timeSinceLastJumpInput = 0;
         }
 
         if (Input.GetKeyUp(KeyCode.Space) && isJumping)
@@ -246,10 +307,12 @@ public class PlayerController : MonoBehaviour
             return;
         }
 
-        ParallaxController.speedMultiplier = 1;
-
         // Move player
-        if (autoMove) MovePlayer();
+        if (autoMove)
+        {
+             MovePlayer();
+            ParallaxController.speedMultiplier = 1;
+        }
 
         if (isDashing)
         {
@@ -294,7 +357,7 @@ public class PlayerController : MonoBehaviour
         {
             anim.SetBool("jumpingDown", true);
             anim.SetBool("jumpingUp", false);
-            if (!isDashing) rb.AddForce(gravityDirection * -gravity * downwardsGravityMultiplier, ForceMode2D.Force);
+            if (!isDashing && !freezeTime) rb.AddForce(gravityDirection * -gravity * downwardsGravityMultiplier, ForceMode2D.Force);
         }
     }
 
@@ -313,6 +376,7 @@ public class PlayerController : MonoBehaviour
 
     void StartDash()
     {
+        playerAudio.PlayOneShot(dashSound);
         isDashing = true;
         dashStartTime = Time.time;
         dashEffect.SetActive(true);
@@ -321,6 +385,7 @@ public class PlayerController : MonoBehaviour
 
     void InvertGravity()
     {
+        playerAudio.PlayOneShot(invertSounds[Random.Range(0, invertSounds.Length)]);
         gravityDirection = -gravityDirection;
         StopCoroutine(PlayArrowAnimation());
         StartCoroutine(PlayArrowAnimation());
@@ -413,9 +478,12 @@ public class PlayerController : MonoBehaviour
     IEnumerator PlayRespawnAnimation()
     {
         if (respawning) yield break;
+        Time.timeScale = 1f;
         respawning = true;
         sr.enabled = false;
         rb.velocity = new Vector2(0, 0);
+        playerAudio.PlayOneShot(eliminateSound);
+        StartCoroutine(FadeOutEndingMusic());
         
         if (StartTutorialCoroutineInstance != null) StopCoroutine(StartTutorialCoroutineInstance);
         if (TutorialCoroutineInstance1 != null) StopCoroutine(TutorialCoroutineInstance1);
@@ -535,27 +603,6 @@ public class PlayerController : MonoBehaviour
         tutorialUI.SetActive(false);
     }
 
-    // IEnumerator PlayTutorialUI()
-    // {
-    //     yield return new WaitForSeconds(4f);
-
-    //     TutorialCoroutineInstance1 = PromptTutorial("Tap to Jump!", 5f, 1);
-    //     StartCoroutine(TutorialCoroutineInstance1);
-
-    //     yield return new WaitForSeconds(8f);
-
-    //     TutorialCoroutineInstance2 = PromptTutorial("Hold to Jump longer!", 5f, 1);
-    //     StartCoroutine(TutorialCoroutineInstance2);
-
-    //     yield return new WaitForSeconds(9f);
-
-    //     TutorialCoroutineInstance3 = PromptTutorial("Double-Tap quickly to flip gravity!", 5f, 1);
-    //     StartCoroutine(TutorialCoroutineInstance3);
-    //     allowInvert = true;
-
-    //     yield return new WaitForSeconds(10f);
-    // }
-
     void StartShakingCamera()
     {
         playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain = 1;
@@ -573,19 +620,18 @@ public class PlayerController : MonoBehaviour
         transform.position = checkpointPosition;
         sr.enabled = true;
         respawning = false;
+        playerAudio.PlayOneShot(respawnSound);
         // StartTutorialCoroutineInstance = PlayTutorialUI();
         // StartCoroutine(StartTutorialCoroutineInstance);
     }
 
-    void OnCollisionEnter2D(Collision2D collision)
-    {
-        print("Collision: " + collision.gameObject.name);
-
-        if (collision.gameObject.tag == "Box")
-        {
-            StartCoroutine(PlayRespawnAnimation());
-        }
-    }
+    // void OnCollisionEnter2D(Collision2D collision)
+    // {
+    //     print("Collision: " + collision.gameObject.name);
+    //     {
+    //     }
+        
+    // }
 
     void OnTriggerEnter2D(Collider2D collision) {
 
@@ -612,14 +658,31 @@ public class PlayerController : MonoBehaviour
                 StartCoroutine(TutorialCoroutineInstance2);
                 break;
             case "TutorialTrigger_3":
-                TutorialCoroutineInstance3 = PromptTutorial("Double-Tap quickly to flip gravity!", 5f, 1);
+                TutorialCoroutineInstance3 = PromptTutorial("Double-Tap to flip gravity!", 5f, 1);
                 StartCoroutine(TutorialCoroutineInstance3);
                 allowInvert = true;
                 break;
             case "TutorialTrigger_4":
-                TutorialCoroutineInstance4 = PromptTutorial("Hold to Dash!", 5f, 1);
+                TutorialCoroutineInstance4 = PromptTutorial("Hold while falling to Dash!", 1f, 1);
                 StartCoroutine(TutorialCoroutineInstance4);
+                StartCoroutine(FreezeTimeSequence());
                 allowDash = true;
+                break;
+            case "BGMusicStopTrigger":
+                StartCoroutine(FadeOutBackgroundMusic());
+                break;
+            case "EndingSequenceTrigger":
+                endingMusic.Play();
+                break;
+            case "LevelEndTrigger":
+                autoMove = false;
+                rb.velocity = new Vector2(0, 0);
+                ParallaxController.speedMultiplier = 0;
+                anim.SetBool("idle", true);
+                allowJump = false;
+                allowDash = false;
+                allowInvert = false;
+                Invoke("ShowTransitionVCam", 2f);
                 break;
             default:
                 break;
@@ -630,4 +693,44 @@ public class PlayerController : MonoBehaviour
     {
         isCheckingTrigger = true;
     }
+
+    IEnumerator FreezeTimeSequence()
+    {
+        yield return new WaitForSeconds(0.4f);
+        Time.timeScale = 0.15f;
+        allowDash = true;
+        while (!isDashing && !respawning)
+        {
+            yield return null;
+        }
+        Time.timeScale = 1f;
+    }
+
+    IEnumerator FadeOutBackgroundMusic()
+    {
+        float volume = backgroundMusic.volume;
+        while (volume > 0)
+        {
+            volume -= Time.deltaTime * 0.075f;
+            backgroundMusic.volume = volume;
+            yield return null;
+        }
+        backgroundMusic.Stop();
+        backgroundMusic.volume = 0.3f;
+    }
+
+    IEnumerator FadeOutEndingMusic()
+    {
+        float volume = endingMusic.volume;
+        while (volume > 0)
+        {
+            volume -= Time.deltaTime * 0.1f;
+            endingMusic.volume = volume;
+            yield return null;
+        }
+        endingMusic.Stop();
+        endingMusic.volume = 0.1f;
+    }
+
+
 }
