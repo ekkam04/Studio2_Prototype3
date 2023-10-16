@@ -8,10 +8,13 @@ public class MainMenuController : MonoBehaviour
 {
     [SerializeField] private GameObject mainMenuPanel;
     [SerializeField] AudioSource menuAudio;
+    [SerializeField] AudioSource backgroundMusic;
     [SerializeField] AudioClip startSound;
+    [SerializeField] ParticleSystem snowParticles;
 
     public void PlayButtonPressed()
     {
+        backgroundMusic.Stop();
         menuAudio.PlayOneShot(startSound);
         StartCoroutine(LoadGame());
     }
@@ -21,11 +24,20 @@ public class MainMenuController : MonoBehaviour
         StartCoroutine(QuitGame());
     }
 
+    void Start()
+    {
+        mainMenuPanel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 1000f);
+        mainMenuPanel.SetActive(true);
+        LeanTween.moveLocalY(mainMenuPanel, 0f, 1.5f).setEaseOutQuad();
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+    }
+
     IEnumerator LoadGame()
     {
+        snowParticles.Stop();
         yield return new WaitForSeconds(0.1f);
-        mainMenuPanel.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 0);
-        LeanTween.moveLocalY(mainMenuPanel, 1000f, 1f).setEaseOutQuad();
+        LeanTween.moveLocalY(mainMenuPanel, 1000f, 1.25f).setEaseOutQuad();
         yield return new WaitForSeconds(4f);
         SceneManager.LoadScene("EkkamScene");
     }

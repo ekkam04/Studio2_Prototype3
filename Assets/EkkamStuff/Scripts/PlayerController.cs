@@ -49,6 +49,7 @@ public class PlayerController : MonoBehaviour
     public GameObject pulseEffect;
     public GameObject dashEffect;
     public ParticleSystem groundParticles;
+    public ParticleSystem tickParticle;
     public float arrowTransparency = 0.5f;
 
     public float jumpHeightApex = 2f;
@@ -102,15 +103,18 @@ public class PlayerController : MonoBehaviour
     Vector3 checkpointPosition;
     public float groundDistance = 1f;
 
-    [SerializeField] AudioSource backgroundMusic;
-    [SerializeField] AudioSource endingMusic;
+    PauseMenuController pauseMenuController;
 
-    [SerializeField] AudioSource playerAudio;
+    [SerializeField] public AudioSource backgroundMusic;
+    [SerializeField] public AudioSource endingMusic;
+
+    [SerializeField] public AudioSource playerAudio;
     [SerializeField] AudioSource footstepAudio;
     [SerializeField] AudioClip[] landingSounds;
     [SerializeField] AudioClip[] footstepSounds;
     [SerializeField] AudioClip[] bridgeBreakingSounds;
     [SerializeField] AudioClip[] invertSounds;
+    [SerializeField] AudioClip checkpointSound;
     [SerializeField] AudioClip dashSound;
     [SerializeField] AudioClip eliminateSound;
     [SerializeField] AudioClip respawnSound;
@@ -124,6 +128,7 @@ public class PlayerController : MonoBehaviour
         sr.flipY = false;
 
         tilemap = GameObject.Find("Ground").GetComponent<Tilemap>();
+        pauseMenuController = GameObject.Find("PauseMenuController").GetComponent<PauseMenuController>();
         checkpointPosition = transform.position;
 
         playerVCamAmplitude = playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain;
@@ -131,11 +136,8 @@ public class PlayerController : MonoBehaviour
         gravity = -2 * jumpHeightApex / (jumpDuration * jumpDuration);
         initialJumpVelocity = Mathf.Abs(gravity) * jumpDuration;
 
-        // Cursor.lockState = CursorLockMode.None;
-        // Cursor.visible = true;
-
-        // Cursor.lockState = CursorLockMode.Locked;
-        // Cursor.visible = false;
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
 
         // set player v cam tracked object offset y to 5 (workaround to pull the camera up a bit)
         playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineFramingTransposer>().m_TrackedObjectOffset.y = 5;
@@ -274,6 +276,18 @@ public class PlayerController : MonoBehaviour
         else
         {
             spaceButton.interactable = true;
+        }
+
+        if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            if (pauseMenuController.isPaused)
+            {
+                pauseMenuController.ResumeButtonPressed();
+            }
+            else
+            {
+                pauseMenuController.PauseButtonPressed();
+            }
         }
     }
 
@@ -621,17 +635,10 @@ public class PlayerController : MonoBehaviour
         sr.enabled = true;
         respawning = false;
         playerAudio.PlayOneShot(respawnSound);
-        // StartTutorialCoroutineInstance = PlayTutorialUI();
-        // StartCoroutine(StartTutorialCoroutineInstance);
-    }
 
-    // void OnCollisionEnter2D(Collision2D collision)
-    // {
-    //     print("Collision: " + collision.gameObject.name);
-    //     {
-    //     }
-        
-    // }
+        if (effectLocation.transform.localPosition.y < 0.1f && gravityDirection == Vector3.up) effectLocation.transform.localPosition = new Vector3(0, 0.175f, 0);
+        else effectLocation.transform.localPosition = new Vector3(0, 0, 0);
+    }
 
     void OnTriggerEnter2D(Collider2D collision) {
 
@@ -645,6 +652,8 @@ public class PlayerController : MonoBehaviour
         {
             print("Checkpoint!");
             checkpointPosition = transform.position;
+            tickParticle.Play();
+            playerAudio.PlayOneShot(checkpointSound);
         }
 
         switch (collision.gameObject.name)
@@ -654,11 +663,11 @@ public class PlayerController : MonoBehaviour
                 StartCoroutine(TutorialCoroutineInstance1);
                 break;
             case "TutorialTrigger_2":
-                TutorialCoroutineInstance2 = PromptTutorial("Hold to Jump longer!", 5f, 1);
+                TutorialCoroutineInstance2 = PromptTutorial("Hold to Jump longer!", 4f, 1);
                 StartCoroutine(TutorialCoroutineInstance2);
                 break;
             case "TutorialTrigger_3":
-                TutorialCoroutineInstance3 = PromptTutorial("Double-Tap to flip gravity!", 5f, 1);
+                TutorialCoroutineInstance3 = PromptTutorial("Double-Tap quickly to flip gravity!", 5f, 1);
                 StartCoroutine(TutorialCoroutineInstance3);
                 allowInvert = true;
                 break;
@@ -682,7 +691,7 @@ public class PlayerController : MonoBehaviour
                 allowJump = false;
                 allowDash = false;
                 allowInvert = false;
-                Invoke("ShowTransitionVCam", 2f);
+                Invoke("ShowTransitionVCam", 4f);
                 break;
             default:
                 break;
