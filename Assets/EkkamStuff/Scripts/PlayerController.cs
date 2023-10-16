@@ -3,9 +3,19 @@ using System.Collections.Generic;
 using UnityEngine;
 using TMPro;
 using UnityEngine.EventSystems;
+using TMPro;
+using UnityEngine.UI;
+using UnityEngine.Tilemaps;
+using UnityEngine.SceneManagement;
 
 public class PlayerController : MonoBehaviour
 {
+    // main control variables
+    public bool allowJump = true;
+    public bool allowDash = true;
+    public bool allowInvert = true;
+    public bool autoMove = true;
+
     public Transform orientation;
     public Transform cameraObj;
 
@@ -20,6 +30,7 @@ public class PlayerController : MonoBehaviour
     public Animator anim;
     public SpriteRenderer sr;
     public GameObject playerVCam;
+    public GameObject transitionVCam;
     public float playerVCamAmplitude = 1f;
 
     public RectTransform[] redArrows;
@@ -27,16 +38,24 @@ public class PlayerController : MonoBehaviour
 
     public RectTransform[] blackPanels;
 
+    public TMP_Text tutorialText;
+    public Button spaceButton;
+    public GameObject tutorialUI;
+
     public GameObject respawnEffect;
     public GameObject[] respawnOrbs;
 
     public GameObject effectLocation;
     public GameObject pulseEffect;
     public GameObject dashEffect;
+    public ParticleSystem groundParticles;
+    public ParticleSystem tickParticle;
     public float arrowTransparency = 0.5f;
 
     public float jumpHeightApex = 2f;
     public float jumpDuration = 1f;
+    public float jumpCoyoteTime = 0.1f;
+    public float dashDuration = 0.5f;
 
     float currentJumpDuration;
     bool respawning = false;
@@ -45,8 +64,9 @@ public class PlayerController : MonoBehaviour
 
     public float speed = 1.0f;
     public float maxSpeed = 5.0f;
-    public float dashSpeed = 1.0f;
-    public float dashMaxSpeed = 5.0f;
+    public float footstepSoundDelay = 0.4f;
+    // public float dashSpeed = 1.0f;
+    // public float dashMaxSpeed = 5.0f;
     public float groundDrag;
 
     public bool isJumping = false;
@@ -57,6 +77,8 @@ public class PlayerController : MonoBehaviour
 
     bool doubleJumped = false;
     bool isDashing = false;
+    bool isCheckingTrigger = true;
+    bool freezeTime = false;
     public bool jumpReleased = false;
     public bool dashReleased = false;
 
@@ -64,28 +86,95 @@ public class PlayerController : MonoBehaviour
     float initialJumpVelocity;
     float jumpStartTime;
     float dashStartTime;
+    float jumpDifference = 0f;
+    float footstepTimer = 0f;
+    
+    public float timeSinceLastGrounded;
+    public float timeSinceLastJumpInput;
 
+    Tilemap tilemap;
+
+    IEnumerator StartTutorialCoroutineInstance = null;
+    IEnumerator TutorialCoroutineInstance1 = null;
+    IEnumerator TutorialCoroutineInstance2 = null;
+    IEnumerator TutorialCoroutineInstance3 = null;
+    IEnumerator TutorialCoroutineInstance4 = null;
+
+    Vector3 checkpointPosition;
     public float groundDistance = 1f;
+
+    PauseMenuController pauseMenuController;
+
+    [SerializeField] public AudioSource backgroundMusic;
+    [SerializeField] public AudioSource endingMusic;
+
+    [SerializeField] public AudioSource playerAudio;
+    [SerializeField] AudioSource footstepAudio;
+    [SerializeField] AudioClip[] landingSounds;
+    [SerializeField] AudioClip[] footstepSounds;
+    [SerializeField] AudioClip[] bridgeBreakingSounds;
+    [SerializeField] AudioClip[] invertSounds;
+    [SerializeField] AudioClip checkpointSound;
+    [SerializeField] AudioClip dashSound;
+    [SerializeField] AudioClip eliminateSound;
+    [SerializeField] AudioClip respawnSound;
 
     private void Start()
     {
         rb = GetComponent<Rigidbody2D>();
         anim = GetComponent<Animator>();
         sr = GetComponent<SpriteRenderer>();
+        sr.flipX = false;
+        sr.flipY = false;
+
+        tilemap = GameObject.Find("Ground").GetComponent<Tilemap>();
+        pauseMenuController = GameObject.Find("PauseMenuController").GetComponent<PauseMenuController>();
+        checkpointPosition = transform.position;
 
         playerVCamAmplitude = playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain;
 
         gravity = -2 * jumpHeightApex / (jumpDuration * jumpDuration);
         initialJumpVelocity = Mathf.Abs(gravity) * jumpDuration;
 
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+
+        // set player v cam tracked object offset y to 5 (workaround to pull the camera up a bit)
+        playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineFramingTransposer>().m_TrackedObjectOffset.y = 5;
+
+        Invoke("HideTransitionVCam", 1f);
+    }
+
+    void HideTransitionVCam()
+    {
+        transitionVCam.SetActive(false);
+        autoMove = true;
+        playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineFramingTransposer>().m_TrackedObjectOffset.y = 0;
+    }
+
+    void ShowTransitionVCam()
+    {
+        transitionVCam.SetActive(true);
+        sr.flipX = !sr.flipX;
+        Invoke("GoToMainMenu", 4f);
+    }
+
+    void GoToMainMenu()
+    {
+        SceneManager.LoadScene("MainMenu");
     }
 
     void Update()
     {
         horizontalInput = Input.GetAxis("Horizontal");
         verticalInput = Input.GetAxis("Vertical");
+
+        footstepTimer += Time.deltaTime;
+        if (footstepTimer > footstepSoundDelay && isGrounded && rb.velocity.x > 0.1f)
+        {
+            footstepTimer = 0f;
+            footstepAudio.PlayOneShot(footstepSounds[Random.Range(0, footstepSounds.Length)]);
+        }
 
         // Ground check
         if (
@@ -96,37 +185,56 @@ public class PlayerController : MonoBehaviour
             )
         {
             isGrounded = true;
+            timeSinceLastGrounded = 0f;
             if (!isJumping)
             {
                 anim.SetBool("jumpingDown", false);
                 anim.SetBool("jumpingUp", false);
-                hasLanded = true;
+                if (hasLanded != true)
+                {
+                    groundParticles.Play();
+                    playerAudio.PlayOneShot(landingSounds[Random.Range(0, landingSounds.Length)]);
+                    hasLanded = true;
+                    jumpDifference = 0f;
+                }
             }
         }
         else
         {
             isGrounded = false;
+            timeSinceLastGrounded += Time.deltaTime;
         }
+
+        timeSinceLastJumpInput += Time.deltaTime;
 
         if (Input.GetKeyDown(KeyCode.Space))
         {
-            if (!isGrounded && allowDoubleJump && !doubleJumped && !isJumping)
-            {
-                print("Invert!");
-                doubleJumped = true;
-                InvertGravity();
-            }
-            else if (!isGrounded && allowDoubleJump && !doubleJumped && isJumping)
+
+            if (!isGrounded && allowDoubleJump && !doubleJumped && !isJumping && timeSinceLastGrounded > jumpCoyoteTime) //  && timeSinceLastGrounded > jumpCoyoteTime
             {
                 print("Dash!");
                 doubleJumped = true;
-                StartDash();
+                if (allowDash) StartDash();
+            }
+            else if (!isGrounded && allowDoubleJump && !doubleJumped && isJumping)
+            {
+                print("Invert!");
+                doubleJumped = true;
+                if (allowInvert) InvertGravity();
             }
             else if (isGrounded)
             {
                 doubleJumped = false;
-                StartJump(jumpHeightApex, jumpDuration);
+                if (allowJump) StartJump(jumpHeightApex, jumpDuration);
             }
+            else if (!isJumping && timeSinceLastGrounded < jumpCoyoteTime)
+            {
+                print("Jump Coyote!");
+                doubleJumped = false;
+                if (allowJump) StartJump(jumpHeightApex, jumpDuration);
+            }
+
+            timeSinceLastJumpInput = 0;
         }
 
         if (Input.GetKeyUp(KeyCode.Space) && isJumping)
@@ -156,6 +264,31 @@ public class PlayerController : MonoBehaviour
             StartCoroutine(PlayRespawnAnimation());
         }
 
+        if (transform.position.y < -6f || transform.position.y > 7.5f)
+        {
+            StartCoroutine(PlayRespawnAnimation());
+        }
+
+        if (Input.GetKey(KeyCode.Space))
+        {
+            spaceButton.interactable = false;
+        }
+        else
+        {
+            spaceButton.interactable = true;
+        }
+
+        if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            if (pauseMenuController.isPaused)
+            {
+                pauseMenuController.ResumeButtonPressed();
+            }
+            else
+            {
+                pauseMenuController.PauseButtonPressed();
+            }
+        }
     }
 
     private void OnDrawGizmos() {
@@ -181,11 +314,18 @@ public class PlayerController : MonoBehaviour
 
     void FixedUpdate()
     {
+        if (respawning) 
+        {
+            rb.velocity = new Vector2(0, 0);
+            ParallaxController.speedMultiplier = 0;
+            return;
+        }
 
         // Move player
-        if (!respawning)
+        if (autoMove)
         {
-            MovePlayer();
+             MovePlayer();
+            ParallaxController.speedMultiplier = 1;
         }
 
         if (isDashing)
@@ -193,21 +333,19 @@ public class PlayerController : MonoBehaviour
             rb.velocity = new Vector2(rb.velocity.x, 0);
             rb.AddForce(transform.right * speed * 2, ForceMode2D.Impulse);
             
-            if (Time.time - dashStartTime >= 0.5f)
+            if (Time.time - dashStartTime >= dashDuration)
             {
                 isDashing = false;
                 dashEffect.SetActive(false);
+                StopShakingCamera();
             }
 
             if (dashReleased)
             {
-                // if (rb.velocity.x > 0)
-                // {
-                //     rb.velocity = new Vector2(rb.velocity.x * 0.5f, rb.velocity.y);
-                // }
                 dashReleased = false;
                 isDashing = false;
                 dashEffect.SetActive(false);
+                StopShakingCamera();
             }
         }
         else if (isJumping)
@@ -233,7 +371,7 @@ public class PlayerController : MonoBehaviour
         {
             anim.SetBool("jumpingDown", true);
             anim.SetBool("jumpingUp", false);
-            if (!isDashing) rb.AddForce(gravityDirection * -gravity * downwardsGravityMultiplier, ForceMode2D.Force);
+            if (!isDashing && !freezeTime) rb.AddForce(gravityDirection * -gravity * downwardsGravityMultiplier, ForceMode2D.Force);
         }
     }
 
@@ -252,13 +390,16 @@ public class PlayerController : MonoBehaviour
 
     void StartDash()
     {
+        playerAudio.PlayOneShot(dashSound);
         isDashing = true;
         dashStartTime = Time.time;
         dashEffect.SetActive(true);
+        StartShakingCamera();
     }
 
     void InvertGravity()
     {
+        playerAudio.PlayOneShot(invertSounds[Random.Range(0, invertSounds.Length)]);
         gravityDirection = -gravityDirection;
         StopCoroutine(PlayArrowAnimation());
         StartCoroutine(PlayArrowAnimation());
@@ -351,8 +492,20 @@ public class PlayerController : MonoBehaviour
     IEnumerator PlayRespawnAnimation()
     {
         if (respawning) yield break;
+        Time.timeScale = 1f;
         respawning = true;
         sr.enabled = false;
+        rb.velocity = new Vector2(0, 0);
+        playerAudio.PlayOneShot(eliminateSound);
+        StartCoroutine(FadeOutEndingMusic());
+        
+        if (StartTutorialCoroutineInstance != null) StopCoroutine(StartTutorialCoroutineInstance);
+        if (TutorialCoroutineInstance1 != null) StopCoroutine(TutorialCoroutineInstance1);
+        if (TutorialCoroutineInstance2 != null) StopCoroutine(TutorialCoroutineInstance2);
+        if (TutorialCoroutineInstance3 != null) StopCoroutine(TutorialCoroutineInstance3);
+        if (TutorialCoroutineInstance4 != null) StopCoroutine(TutorialCoroutineInstance4);
+        tutorialUI.SetActive(false);
+
         // pulseEffect.SetActive(true);
         // pulseEffect.GetComponent<Animator>().SetTrigger("pulse");
         // Invoke("DisablePulse", 0.5f);
@@ -402,7 +555,6 @@ public class PlayerController : MonoBehaviour
             LeanTween.moveLocalY(respawnOrbs[i], 0, movingSpeed).setEaseOutCubic();
             yield return new WaitForSeconds(0.05f);
         }
-        
 
         // move the black panels to the right of the screen
         for (int i = 0; i < blackPanels.Length; i++)
@@ -423,18 +575,55 @@ public class PlayerController : MonoBehaviour
         respawnEffect.SetActive(false);
         Respawn();
 
+        // set player v cam tracked object offset y to 5 (workaround to pull the camera up a bit)
+        playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineFramingTransposer>().m_TrackedObjectOffset.y = 5;
+
         // use leantween and move the black panels to the right of the screen
         for (int i = 0; i < blackPanels.Length; i++)
         {
             LeanTween.moveX(blackPanels[i], 1930, 1f).setEaseOutCubic();
             yield return new WaitForSeconds(0.05f);
         }
+
+        playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineFramingTransposer>().m_TrackedObjectOffset.y = 0;
     }
 
-    IEnumerator ShakeCamera(float amplitude, float duration)
+    IEnumerator PromptTutorial(string textToShow, float durationToShow, int tutorialNumber)
     {
-        playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain = amplitude;
-        yield return new WaitForSeconds(duration);
+        // set tutorial text
+        tutorialText.text = textToShow;
+
+        // move tutorial UI to y = 500
+        tutorialUI.GetComponent<RectTransform>().anchoredPosition = new Vector2(0, 450);
+        tutorialUI.SetActive(true);
+
+        // use leantween and move tutorial UI down
+        LeanTween.moveLocalY(tutorialUI, 0, 1f).setEaseOutCubic();
+
+        yield return new WaitForSeconds(1.5f);
+
+        // spaceButton.interactable = false;
+        // yield return new WaitForSeconds(0.1f);
+        // spaceButton.interactable = true;
+
+        yield return new WaitForSeconds(durationToShow);
+
+        // use leantween and move tutorial UI up
+        LeanTween.moveLocalY(tutorialUI, 450, 1f).setEaseOutCubic();
+
+        yield return new WaitForSeconds(1f);
+
+        // disable tutorial UI
+        tutorialUI.SetActive(false);
+    }
+
+    void StartShakingCamera()
+    {
+        playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain = 1;
+    }
+
+    void StopShakingCamera()
+    {
         playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain = 0;
     }
 
@@ -442,17 +631,115 @@ public class PlayerController : MonoBehaviour
     {
         gravityDirection = Vector3.down;
         sr.flipY = false;
-        transform.position = new Vector3(0, -2.85f, 0);
+        transform.position = checkpointPosition;
         sr.enabled = true;
         respawning = false;
+        playerAudio.PlayOneShot(respawnSound);
+
+        if (effectLocation.transform.localPosition.y < 0.1f && gravityDirection == Vector3.up) effectLocation.transform.localPosition = new Vector3(0, 0.175f, 0);
+        else effectLocation.transform.localPosition = new Vector3(0, 0, 0);
     }
 
-    void OnCollisionEnter2D(Collision2D collision)
-    {
-        print("collision"+ collision.gameObject.name);
-        if (collision.gameObject.tag == "Box")
+    void OnTriggerEnter2D(Collider2D collision) {
+
+        if (!isCheckingTrigger) return;
+        isCheckingTrigger = false;
+        Invoke("EnableTriggerCheck", 1f);
+
+        print("Trigger: " + collision.gameObject.name);
+
+        if (collision.gameObject.tag == "Respawn")
         {
-            StartCoroutine(PlayRespawnAnimation());
+            print("Checkpoint!");
+            checkpointPosition = transform.position;
+            tickParticle.Play();
+            playerAudio.PlayOneShot(checkpointSound);
+        }
+
+        switch (collision.gameObject.name)
+        {
+            case "TutorialTrigger_1":
+                TutorialCoroutineInstance1 = PromptTutorial("Tap to Jump!", 5f, 1);
+                StartCoroutine(TutorialCoroutineInstance1);
+                break;
+            case "TutorialTrigger_2":
+                TutorialCoroutineInstance2 = PromptTutorial("Hold to Jump longer!", 4f, 1);
+                StartCoroutine(TutorialCoroutineInstance2);
+                break;
+            case "TutorialTrigger_3":
+                TutorialCoroutineInstance3 = PromptTutorial("Double-Tap quickly to flip gravity!", 5f, 1);
+                StartCoroutine(TutorialCoroutineInstance3);
+                allowInvert = true;
+                break;
+            case "TutorialTrigger_4":
+                TutorialCoroutineInstance4 = PromptTutorial("Hold while falling to Dash!", 1f, 1);
+                StartCoroutine(TutorialCoroutineInstance4);
+                StartCoroutine(FreezeTimeSequence());
+                allowDash = true;
+                break;
+            case "BGMusicStopTrigger":
+                StartCoroutine(FadeOutBackgroundMusic());
+                break;
+            case "EndingSequenceTrigger":
+                endingMusic.Play();
+                break;
+            case "LevelEndTrigger":
+                autoMove = false;
+                rb.velocity = new Vector2(0, 0);
+                ParallaxController.speedMultiplier = 0;
+                anim.SetBool("idle", true);
+                allowJump = false;
+                allowDash = false;
+                allowInvert = false;
+                Invoke("ShowTransitionVCam", 4f);
+                break;
+            default:
+                break;
         }
     }
+
+    void EnableTriggerCheck()
+    {
+        isCheckingTrigger = true;
+    }
+
+    IEnumerator FreezeTimeSequence()
+    {
+        yield return new WaitForSeconds(0.4f);
+        Time.timeScale = 0.15f;
+        allowDash = true;
+        while (!isDashing && !respawning)
+        {
+            yield return null;
+        }
+        Time.timeScale = 1f;
+    }
+
+    IEnumerator FadeOutBackgroundMusic()
+    {
+        float volume = backgroundMusic.volume;
+        while (volume > 0)
+        {
+            volume -= Time.deltaTime * 0.075f;
+            backgroundMusic.volume = volume;
+            yield return null;
+        }
+        backgroundMusic.Stop();
+        backgroundMusic.volume = 0.3f;
+    }
+
+    IEnumerator FadeOutEndingMusic()
+    {
+        float volume = endingMusic.volume;
+        while (volume > 0)
+        {
+            volume -= Time.deltaTime * 0.1f;
+            endingMusic.volume = volume;
+            yield return null;
+        }
+        endingMusic.Stop();
+        endingMusic.volume = 0.1f;
+    }
+
+
 }
