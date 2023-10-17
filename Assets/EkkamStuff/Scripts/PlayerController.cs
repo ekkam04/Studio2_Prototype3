@@ -15,6 +15,8 @@ public class PlayerController : MonoBehaviour
     public bool allowDash = true;
     public bool allowInvert = true;
     public bool autoMove = true;
+    public float upperEliminationLimit = 7.5f;
+    public float lowerEliminationLimit = -6f;
 
     public Transform orientation;
     public Transform cameraObj;
@@ -128,7 +130,7 @@ public class PlayerController : MonoBehaviour
         sr.flipX = false;
         sr.flipY = false;
 
-        tilemap = GameObject.Find("Ground").GetComponent<Tilemap>();
+        // tilemap = GameObject.Find("Ground").GetComponent<Tilemap>();
         pauseMenuController = GameObject.Find("PauseMenuController").GetComponent<PauseMenuController>();
         checkpointPosition = transform.position;
         endingText.gameObject.SetActive(false);
@@ -267,7 +269,7 @@ public class PlayerController : MonoBehaviour
             StartCoroutine(PlayRespawnAnimation());
         }
 
-        if (transform.position.y < -6f || transform.position.y > 7.5f)
+        if (transform.position.y < lowerEliminationLimit || transform.position.y > upperEliminationLimit)
         {
             StartCoroutine(PlayRespawnAnimation());
         }
