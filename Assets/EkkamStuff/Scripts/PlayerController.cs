@@ -31,6 +31,7 @@ public class PlayerController : MonoBehaviour
     public SpriteRenderer sr;
     public GameObject playerVCam;
     public GameObject transitionVCam;
+    public Text endingText;
     public float playerVCamAmplitude = 1f;
 
     public RectTransform[] redArrows;
@@ -130,6 +131,7 @@ public class PlayerController : MonoBehaviour
         tilemap = GameObject.Find("Ground").GetComponent<Tilemap>();
         pauseMenuController = GameObject.Find("PauseMenuController").GetComponent<PauseMenuController>();
         checkpointPosition = transform.position;
+        endingText.gameObject.SetActive(false);
 
         playerVCamAmplitude = playerVCam.GetComponent<Cinemachine.CinemachineVirtualCamera>().GetCinemachineComponent<Cinemachine.CinemachineBasicMultiChannelPerlin>().m_AmplitudeGain;
 
@@ -156,7 +158,8 @@ public class PlayerController : MonoBehaviour
     {
         transitionVCam.SetActive(true);
         sr.flipX = !sr.flipX;
-        Invoke("GoToMainMenu", 4f);
+        StartCoroutine(FadeEndingText());
+        Invoke("GoToMainMenu", 10f);
     }
 
     void GoToMainMenu()
@@ -634,6 +637,7 @@ public class PlayerController : MonoBehaviour
         transform.position = checkpointPosition;
         sr.enabled = true;
         respawning = false;
+        allowDash = false;
         playerAudio.PlayOneShot(respawnSound);
 
         if (effectLocation.transform.localPosition.y < 0.1f && gravityDirection == Vector3.up) effectLocation.transform.localPosition = new Vector3(0, 0.175f, 0);
@@ -741,5 +745,15 @@ public class PlayerController : MonoBehaviour
         endingMusic.volume = 0.1f;
     }
 
+    IEnumerator FadeEndingText()
+    {
+        yield return new WaitForSeconds(1f);
+        // use lean tween to fade ending text
+        LeanTween.alphaText(endingText.rectTransform, 0, 0f).setEaseOutCubic();
+        endingText.gameObject.SetActive(true);
+        LeanTween.alphaText(endingText.rectTransform, 1, 1f).setEaseOutCubic();
+        yield return new WaitForSeconds(7f);
+        LeanTween.alphaText(endingText.rectTransform, 0, 1f).setEaseOutCubic();
+    }
 
 }
